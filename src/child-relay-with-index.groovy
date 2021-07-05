@@ -2,7 +2,7 @@ metadata {
   definition (
     author: "The Fabio",
     description: "Device to raise on-off clicked events on parent devices",
-    importUrl: "https://raw.githubusercontent.com/TheFabio/hubitat/master/src/child-relay-with-index.groovy",
+    importUrl: "https://raw.githubusercontent.com/TheFabio/hubitat/main/src/child-relay-with-index.groovy",
     name: "child-relay-switch-with-index",
     namespace: "thefabio"
   ) {

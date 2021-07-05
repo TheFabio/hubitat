@@ -2,7 +2,7 @@ metadata {
   definition (
     author: "The Fabio",
     description: "Driver for Unbranded 8-Relay board with Ethernet - HHC-N-8180\n Requires the device 'child-relay-switch-with-index",
-    importUrl: "https://raw.githubusercontent.com/TheFabio/hubitat/master/src/hhc-n-8180.groovy",
+    importUrl: "https://raw.githubusercontent.com/TheFabio/hubitat/main/src/hhc-n-8180.groovy",
     name: "8-Port Relay HHC-N-8180",
     namespace: "thefabio"
   ) {
