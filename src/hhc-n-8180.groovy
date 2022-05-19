@@ -6,12 +6,21 @@ metadata {
     name: "8-Port Relay HHC-N-8180",
     namespace: "thefabio"
   ) {
-     capability "Initialize"
+     capability "Initialize" // adds initialize() callback which is called when hubitat restarts
+     capability "Actuator" // does not add functions or variables, but the Actuator capability allows the custom commands to be called via Rule Machine
 
      command "allOn"
      command "allOff"
 
      attribute "connectionStatus", "enum", ['connected', 'disconnected']
+     attribute "input1", "number"
+     attribute "input2", "number"
+     attribute "input3", "number"
+     attribute "input4", "number"
+     attribute "input5", "number"
+     attribute "input6", "number"
+     attribute "input7", "number"
+     attribute "input8", "number"
   }
   preferences {
     input title: "Unit Address",
@@ -28,6 +37,13 @@ metadata {
         required: true,
         defaultValue: 5000,
         range: "1..65534"
+
+    input title: "Disable Device",
+        name: "disabled",
+        type: "bool",
+        description: "Disable the refresh loop and sending commands",
+        required: true,
+        defaultValue: false
 
     input title: "Debug Mode",
         name: "debugMode",
@@ -121,12 +137,13 @@ def updated() {
 }
 
 //This method is called in response to a message received by the device driver
-def parse(description) {
-    writeLog "Parse received: ${description}"
+def parse(msg) {
+    writeLog "Parse received: ${msg}"
     if (stateValue(device, 'connectionStatus') != 'connected'){
         sendEvent(name: "connectionStatus", value: 'connected')
+        writeLog "Connected"
     }
-    processStatusUpdate(description)
+    processStatusUpdate(msg)
 }
 // default methods - end
 
@@ -135,13 +152,14 @@ def initialize() {
     writeLog "Initializing..."
     sendEvent(name: "connectionStatus", value: 'disconnected')
     reconnect()
-    writeLog "Initialized"
 }
 // capability initialize - End
 
 // interfaces.rawSocket requirements - start
 def socketStatus(socketStatusMsg){
     writeLog "socketStatus: ${socketStatusMsg}"
+
+    sendEvent(name: "connectionStatus", value: 'disconnected')
 }
 // interfaces.rawSocket requirements - End
 
@@ -159,8 +177,13 @@ def setupScheduledTasks() {
 }
 
 def refreshLoop() {
+    if (disabled) {
+        return
+    }
+
     if (stateValue(device, 'connectionStatus') == 'connected') {
-        sendCommand('read')
+        sendCommand('read') //Request relay state
+        sendCommand('input') //Request input state
     } else {
         connectSocket()
     }
@@ -194,6 +217,23 @@ def updateRelayState(relayIndex, switchOn){
     childRelay.sendEvent(name: "switch", value: newStatus)
 }
 
+def updateInputState(inputIndex, inputState){
+    inputName = "input" + inputIndex
+    inputValue = inputState ? 1 : 0;
+
+    writeLog "received InputState ${inputName} ${inputValue}"
+    if (stateValue(device, inputName) == "${inputValue}") return;
+
+    writeLog "updating InputState ${inputName} from ${stateValue(device, inputName)} to ${inputValue}"
+    sendEvent(name: inputName, value: inputValue)
+}
+
+def setupInputs(){
+   for (i = 1; i <9; i++) {
+     updateInputState(i, false)
+   }
+}
+
 def setupDevice(){
     // Creating 8 child devices (one per available relay)
     for (i = 1; i <9; i++) {
@@ -208,21 +248,39 @@ def setupDevice(){
     // Set disconnected state
     sendEvent(name: "connectionStatus", value: 'disconnected')
     setupScheduledTasks()
+    setupInputs()
 }
 
-def processStatusUpdate(description) {
-    indexOfRelay = description.indexOf("72656C6179") // word "relay" in ASCII
-    if (indexOfRelay < 0 ) return
+def processStatusUpdate(msg) {
+    // a message can be
+    // 72656C61793030303030303030696E7075743030303030303030
+    // 72656C61793030303030303030
+    // 696E7075743030303030303030
 
-    // +10 is an offset to remove the word "relay"
-    rawStatus = description.substring(indexOfRelay + 10, indexOfRelay + 26)
+    indexOfRelay = msg.indexOf("72656C6179") // word "relay" in ASCII
+    indexOfInput = msg.indexOf("696E707574") // word "input" in ASCII
 
-    (0..7).each { n ->
-        updateRelayState(n +1 , rawStatus[15 - n*2] == "1")
+    if (indexOfRelay >= 0 ) {
+       // +10 is an offset to remove the word "relay"
+       rawStatus = msg.substring(indexOfRelay + 10, indexOfRelay + 26)
+       (0..7).each { n ->
+           updateRelayState(n +1 , rawStatus[15 - n*2] == "1")
+       }
+    }
+
+    if (indexOfInput >= 0) {
+       // +10 is an offset to remove the word "input"
+       rawStatus = msg.substring(indexOfInput + 10, indexOfInput + 26)
+       (0..7).each { n ->
+           updateInputState(n +1 , rawStatus[15 - n*2] == "1")
+       }
     }
 }
 
 def sendCommand(boardCommand) {
+    if (disabled) {
+        return
+    }
     writeLog "sendCommand ${boardCommand}"
     if (stateValue(device, 'connectionStatus') != 'connected'){
         writeLog "Could not perform command, socket is disconnected"
