@@ -14,6 +14,11 @@ Please add the unit's ipaddress and port to the driver configuration
 
 More information about the relay board can be found in my [board configuration repo](https://github.com/TheFabio/control-hcc-n-8180)
 
+## Apps
+### Time-Debounced Switch-off
+App to select switch devices and switch them off automatically after a configured delay.
+The automatic switch off is Time-Debounced
+[Time-Debounced Switch-off](src/time-debounced-off-switch.goovy)
 
 # Issues / Improvements
 

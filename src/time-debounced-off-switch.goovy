@@ -1,0 +1,183 @@
+definition(
+  name: "Time-Debounced off switches",
+  namespace: "thefabio",
+  author: "The Fabio",
+  description: "Configure switches to be turned off after a number of seconds, resetting the counter of seconds per switch every time the switch is turned on",
+  category: "Convenience",
+  iconUrl: "",
+  iconX2Url: "",
+  iconX3Url: "",
+  importUrl: "https://raw.githubusercontent.com/TheFabio/hubitat/master/src/time-debounced-off-switch.goovy",
+  singleInstance: true
+)
+
+preferences {
+  page(name: "mainPage")
+  page(name: "deviceSpecificPage")
+}
+
+def mainPage() {
+  dynamicPage(name:"mainPage", uninstall:true, install:true) {
+    section () {
+      paragraph "Select the switches to which the time-Debounced Switch-Off applies to"
+      paragraph "Every time a selected switch is turned off, the Switch-Off event is removed"
+      paragraph "Every time a selected switch is turned on, the Switch-Off event is removed and re-scheduled according to the configured delay"
+      input "selectedSwitches",
+            "capability.switch",
+            title: "Select Switches",
+            multiple: true,
+            hideWhenEmpty: false,
+            required: false
+
+      input name: "defaultDelay",
+            type: "number",
+            title: "Default Switch-off delay (in seconds)",
+            defaultValue: 900 // 15 minutes
+            required: true
+    }
+
+    section(){
+      input name: "debugMode",
+            type: "bool",
+            title: "Write debug logs",
+            defaultValue: false
+    }
+
+    section(){
+      href("deviceSpecificPage", title: "Device specific Switch-off delays")
+    }
+  }
+}
+
+def deviceSpecificPage(){
+  dynamicPage(name:"deviceSpecificPage", uninstall:true, install:true, title:"Device specific Switch-off delays") {
+    section(){
+      href("mainPage", title: "Back to Main")
+    }
+
+    section () {
+        paragraph "When set to 0, uses the Default Switch-off delay, in seconds (${defaultDelay})"
+        selectedSwitches.sort{a,b -> a.label <=> b.label}.each {
+              input name: "${it.deviceNetworkId}.delay",
+                    type: "number",
+                    title: it.label,
+                    defaultValue: 0
+        }
+      }
+
+  }
+}
+
+import groovy.json.JsonSlurper
+
+// default methods - begin
+def installed() { // This method is called when the app is first installed.
+  setupScheduler()
+}
+
+def updated() { // This method is called when the app settings are updated
+    subscribeSelectedDevices()
+}
+// default methods - end
+
+def setupScheduler() {
+  unschedule()
+  schedule("0/2 * * ? * *", "switchOffLoop") // every 2 seconds
+}
+
+def deviceSwitchState(targetDevice) {
+  if (targetDevice == null || targetDevice.currentState('switch') == null) return null;
+
+  return targetDevice.currentState('switch').value
+}
+
+def switchOffLoop() {
+  deviceIdsToRemove = []
+  if (state.switchOffsScheduled == null || state.switchOffsScheduled.length == 0) return;
+
+  state.switchOffsScheduled.each { scheduleItem ->
+    refData = new Date().format("yyyy-MM-dd HH:mm:ss")
+    if (scheduleItem.switchOffAt < refData.toString()) {
+      // time to run it
+      deviceIdsToRemove << scheduleItem.deviceId
+      targetDevice = selectedSwitches.find{selected -> selected.deviceNetworkId == scheduleItem.deviceId}
+
+      if (targetDevice != null && deviceSwitchState(targetDevice) == "on") targetDevice.off();
+      writeLog("switchOffLoop -- device ${targetDevice.deviceNetworkId}, switched off")
+      log.info("Switched Off - ${targetDevice.label}")
+    }
+  }
+
+  deviceIdsToRemove.each { cancelSwitchOff(it) }
+}
+
+def cancelSwitchOffRemovedDevices() {
+  deviceIdsToRemove = []
+  if (state.switchOffsScheduled == null || state.switchOffsScheduled.length == 0) return;
+
+  selectedDeviceIds = []
+  selectedSwitches.each {
+    selectedDeviceIds << it.deviceNetworkId
+  }
+
+  state.switchOffsScheduled.each { scheduleItem ->
+    if (selectedDeviceIds.find{selectedId -> scheduleItem.deviceId == selectedId } == null){
+      deviceIdsToRemove << scheduleItem.deviceId
+    }
+  }
+
+  deviceIdsToRemove.each { cancelSwitchOff(it) }
+}
+
+def subscribeSelectedDevices() {
+    unsubscribe()
+    subscribe(selectedSwitches, "switch", switchHandler)
+
+    cancelSwitchOffRemovedDevices()
+}
+
+def switchHandler(evt) {
+  if (evt.value == 'on') {
+    upsertSwitchOff(evt.device.deviceNetworkId)
+  }
+
+  if (evt.value == 'off') {
+    cancelSwitchOff(evt.device.deviceNetworkId)
+  }
+}
+
+def deviceSwitchOffDelay(deviceId) {
+  deviceDelay = settings["${deviceId}.delay"] == null ? 0 : settings["${deviceId}.delay"] as int
+  defaultDevicesDelay = settings["defaultDelay"] == null ? 900 : settings["defaultDelay"] as int
+
+  if (deviceDelay < 0) deviceDelay = 0
+  if (defaultDevicesDelay < 0) defaultDevicesDelay = 900
+
+   return deviceDelay > 0 ? deviceDelay : defaultDevicesDelay
+}
+
+def cancelSwitchOff(deviceId) {
+  newSwitchOffsScheduled = state.switchOffsScheduled == null ?
+   [] :
+   state.switchOffsScheduled
+
+  state.switchOffsScheduled = newSwitchOffsScheduled.findAll { it.deviceId != deviceId }
+}
+
+def upsertSwitchOff(deviceId) {
+  deviceDelay = deviceSwitchOffDelay(deviceId)
+  cancelSwitchOff(deviceId)
+  use (groovy.time.TimeCategory) {
+    switchOffAt = new Date() + deviceDelay.seconds
+    deviceSchedule = "{\"deviceId\": \"${deviceId}\", \"switchOffAt\": \"${switchOffAt.format("yyyy-MM-dd HH:mm:ss")}\"}"
+    state.switchOffsScheduled.add(new JsonSlurper().parseText(deviceSchedule))
+  }
+}
+
+def writeLog(logLine){
+    if (!debugMode){
+        return
+    }
+
+    log.debug logLine
+}
