@@ -15,7 +15,7 @@ Please add the unit's ipaddress and port to the driver configuration
 More information about the relay board can be found in my [board configuration repo](https://github.com/TheFabio/control-hcc-n-8180)
 
 ### Sony Received STR-DN1080
-The [configured device](src/drivers/sony-receiver-str-DN1080.groovy) is capable of executing the following on a Sony Received STR-DN1080
+The [configured device](src/sony-receiver-str-DN1080.groovy) is capable of executing the following on a Sony Received STR-DN1080
 * interrogating the receiver output zones
 * performing power on/off
 * set per selected zone
